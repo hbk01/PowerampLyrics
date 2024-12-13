@@ -21,3 +21,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "Poweramp Lyrics"
 include(":app")
+include(":poweramp_api_lib")
