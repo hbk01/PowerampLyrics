@@ -25,8 +25,11 @@ package com.github.hbk01.poweramplyrics
 
 import android.content.BroadcastReceiver
 import android.content.Context
+import android.content.Context.MODE_PRIVATE
 import android.content.Intent
+import android.icu.text.SimpleDateFormat
 import android.util.Log
+import androidx.core.content.edit
 import com.github.hbk01.poweramplyrics.lyric.KugouLyric
 import com.maxmpz.poweramp.player.PowerampAPI
 import com.maxmpz.poweramp.player.PowerampAPI.NO_ID
@@ -35,6 +38,7 @@ import kotlinx.coroutines.DelicateCoroutinesApi
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.GlobalScope
 import kotlinx.coroutines.launch
+import java.util.Date
 
 /**
  * 歌词请求广播接收器
@@ -59,11 +63,6 @@ class LyricsRequestReceiver : BroadcastReceiver() {
                 return
             }
 
-            // NOTE: album/artist can be "" (empty string) for the unknown album/artist
-            val album = intent.getStringExtra(PowerampAPI.Track.ALBUM)
-            val artist = intent.getStringExtra(PowerampAPI.Track.ARTIST)
-            var durationMs = intent.getIntExtra(PowerampAPI.Track.DURATION_MS, 0)
-
             // We can extract other PowerampAPI.Track fields from extras here if needed
             val fileType = intent.getIntExtra(PowerampAPI.Track.FILE_TYPE, PowerampAPI.Track.FileType.TYPE_UNKNOWN)
 
@@ -72,13 +71,31 @@ class LyricsRequestReceiver : BroadcastReceiver() {
             val isStream = fileType == PowerampAPI.Track.FileType.TYPE_STREAM
             if (isStream) return // so, we won't load lyrics for stream tracks
 
-            val debugLine = "ACTION_NEED_LYRICS realId=$realId title=$title album=$album artist=$artist durationMs=$durationMs"
-            if (LOG) Log.w(TAG, debugLine)
+            // NOTE: album/artist can be "" (empty string) for the unknown album/artist
+            val album = intent.getStringExtra(PowerampAPI.Track.ALBUM)
+            val artist = intent.getStringExtra(PowerampAPI.Track.ARTIST)
+            var durationMs = intent.getIntExtra(PowerampAPI.Track.DURATION_MS, 0)
 
-            val infoLine = "Poweramp Lyrics"
+            val debugLine = """
+                ACTION_NEED_LYRICS
+                    realId='$realId'
+                    title='$title'
+                    album='$album'
+                    artist='$artist'
+                    durationMs='$durationMs'
+            """.trimIndent()
+
+            if (LOG) Log.w(TAG, debugLine)
+            val dateTime = SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(Date())
+            Log.d(TAG, "onReceive: dateTime=$dateTime")
+
+            context.getSharedPreferences("history", MODE_PRIVATE).edit {
+                putString(dateTime, "$artist $title")
+            }
 
             GlobalScope.launch(Dispatchers.IO) {
                 KugouLyric().download(artist.toString(), title) { lyric ->
+                    val infoLine = "Poweramp Lyrics"
                     sendLyricsResponse(context, realId, lyric, infoLine)
                 }
             }
@@ -91,15 +108,13 @@ class LyricsRequestReceiver : BroadcastReceiver() {
      * @return true if we sent it, false on failure
      */
     fun sendLyricsResponse(context: Context, realId: Long, lyrics: String?, infoLine: String?): Boolean {
-        if (LOG) Log.w(TAG, "sendLyricsResponse realId=$realId infoLine=$infoLine")
         val intent = Intent(PowerampAPI.Lyrics.ACTION_UPDATE_LYRICS)
         intent.putExtra(PowerampAPI.EXTRA_ID, realId)
         intent.putExtra(PowerampAPI.Lyrics.EXTRA_LYRICS, lyrics) // Can be null
         intent.putExtra(PowerampAPI.Lyrics.EXTRA_INFO_LINE, infoLine) // Can be null
         try {
             PowerampAPIHelper.sendPAIntent(context, intent)
-            val debugLine = "sendLyricsResponse realId=$realId"
-            if (LOG) Log.w(TAG, debugLine)
+            if (LOG) Log.d(TAG, "sendLyricsResponse realId=$realId")
             return true
         } catch (th: Throwable) {
             Log.e(TAG, "Failed to send lyrics response", th)

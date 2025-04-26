@@ -17,10 +17,14 @@ class KugouLyric : LyricDownloader {
     private val TAG = "KugouLyric"
 
     override fun download(artist: String, title: String, callback: (String) -> Unit) {
-        search(artist, title) { hash ->
-            list(hash) { id, key ->
-                downloadLyric(id, key, callback)
+        try {
+            search(artist, title) { hash ->
+                list(hash) { id, key ->
+                    downloadLyric(id, key, callback)
+                }
             }
+        } catch (e: Throwable) {
+            Log.e(TAG, e.message, e)
         }
     }
 
@@ -32,9 +36,12 @@ class KugouLyric : LyricDownloader {
      * @author hbk01
      */
     private fun search(artist: String, title: String, callback: (String) -> Unit) {
-        val keyword = URLEncoder.encode(artist + title, "utf-8")
+        val keyword = URLEncoder.encode("$artist $title", "utf-8")
+        Log.d(TAG, "search: keyword=$keyword")
         val searchUrl = "http://mobilecdn.kugou.com/api/v3/search/song?format=json&keyword=$keyword&page=1&pagesize=20&showtype=1"
+        Log.d(TAG, "search: url=$searchUrl")
         get(searchUrl) { data ->
+            Log.d(TAG, "search: data=$data")
             val jsonObject = JSONObject(data)
             val infos = jsonObject.getJSONObject("data").getJSONArray("info")
 
@@ -51,7 +58,7 @@ class KugouLyric : LyricDownloader {
                     max = similarity
                 }
             }
-            Log.i(TAG, "search lyrics with song hash $hash")
+            Log.d(TAG, "search: hash=$hash")
             callback(hash)
         }
     }
@@ -64,9 +71,19 @@ class KugouLyric : LyricDownloader {
      */
     private fun list(hash: String, callback: (String, String) -> Unit) {
         val listUrl = "http://krcs.kugou.com/search?ver=1&man=yes&client=mobi&hash=${hash}"
+        Log.d(TAG, "list: request: $listUrl")
         get(listUrl) { data ->
-            if (data == "") return@get
+            if (data == "") {
+                callback("0", "0")
+                return@get
+            }
+            Log.d(TAG, "data: $data")
             val candidates = JSONObject(data).getJSONArray("candidates")
+            Log.d(TAG, "candidates: $candidates")
+            if (candidates.length() == 0) {
+                callback("0", "0")
+                return@get
+            }
             var id = candidates.getJSONObject(0).getString("id")
             var key = candidates.getJSONObject(0).getString("accesskey")
             for (i in 0 until candidates.length()) {
@@ -97,6 +114,9 @@ class KugouLyric : LyricDownloader {
      * @author hbk01
      */
     private fun downloadLyric(id: String, key: String, callback: (String) -> Unit) {
+        if (id == "0" && key == "0") {
+            callback("[00:00:00] 未搜索到歌词")
+        }
         val downloadUrl = "http://lyrics.kugou.com/download?ver=1&client=pc&id=$id&accesskey=$key&fmt=lrc&charset=utf8"
         get(downloadUrl) { data ->
             val content = JSONObject(data).getString("content")
